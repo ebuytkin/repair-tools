@@ -49,11 +49,6 @@ def test_package_has_hidden_file(good_package: Path, caplog):
 
     assert not hidden_file.exists()
 
-    log_msg = (
-        f"Removing: {str(hidden_file)}"
-    )
-
-    # assert log_msg in caplog.text
 
 def test_package_has_hidden_folder(good_package: Path, caplog):
     hidden_package = good_package
@@ -64,8 +59,3 @@ def test_package_has_hidden_folder(good_package: Path, caplog):
 
     assert not hidden_folder.exists()
 
-    log_msg = (
-        f"Removing: {str(hidden_folder)}"
-    )
-
-    # assert log_msg in caplog.text
