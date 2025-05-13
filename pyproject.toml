@@ -1,0 +1,24 @@
+[tool.poetry]
+name = "repair-tools"
+version = "0.1.0"
+description = ""
+authors = ["Emilee Buytkins <emileebuytkins@nypl.org>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.10"
+bagit = "^1.8.1"
+matplotlib = "^3.10.1"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.3.5"
+setuptools = "^80.1.0"
+
+[tool.poetry.scripts]
+delete_hidden_files = 'repair_tools.delete_hidden_files:main'
+correct_double_bag = 'repair_tools.correct_double_bag:main'
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
