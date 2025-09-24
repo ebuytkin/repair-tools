@@ -6,17 +6,28 @@ authors = ["Emilee Buytkins <emileebuytkins@nypl.org>"]
 readme = "README.md"
 
 [tool.poetry.dependencies]
-python = "^3.10"
+python = ">=3.11,<4.0"
 bagit = "^1.8.1"
 matplotlib = "^3.10.1"
+requests = "^2.32.4"
+nox = "^2025.5.1"
+nox-poetry = "^1.2.0"
+pytest = "^8.4.1"
+tqdm = "^4.67.1"
+msgpack = "^1.1.1"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.3.5"
 setuptools = "^80.1.0"
+pytest-mock = "^3.14.1"
 
 [tool.poetry.scripts]
 delete_hidden_files = 'repair_tools.delete_hidden_files:main'
 correct_double_bag = 'repair_tools.correct_double_bag:main'
+compare_mounted_volumes = 'repair_tools.compare_mounted_volumes:main'
+create_symlink = 'repair_tools.create_symlink:main'
+prsv_move = 'repair_tools.prsv_move:main'
+move_reingest = 'repair_tools.move_reingest:main'
 
 [build-system]
 requires = ["poetry-core"]
