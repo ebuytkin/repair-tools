@@ -13,8 +13,8 @@ PARENT_HIERARCHY = "380c_d78-0a8a-4843-b472-2199ba7fad72" # INGEST folder
 
 PRESERVICA_API_URL = "https://nypl.preservica.com/api"
 
-DELETION_LIST = [line for line in Path("/Users/emileebuytkins/Documents/Buytkins_Programming/reingest.txt").read_text().splitlines() if line.strip()]
-
+DELETION_LIST_PATH = Path("/Users/emileebuytkins/Documents/Buytkins_Programming/complete_reingest_history.txt")
+DELETION_LIST = [line for line in DELETION_LIST_PATH.read_text().splitlines() if line.strip()]
 
 def parse_args():
     parser = argparse.ArgumentParser()
@@ -25,12 +25,21 @@ def parse_args():
         choices=["test-ingest", "prod-ingest", "test-manage"],
         help="which set of credentials to use",
         )
-    parser.add_argument(
+    
+    # Create a mutually exclusive group for the package source
+    package_source_group = parser.add_mutually_exclusive_group(required=True)
+    package_source_group.add_argument(
         "--pkg_title",
         "-p",
         nargs='+',
-        help="One or more titles of packages to find and move."
+        help="One or more titles of packages to find and move, separated by a space."
     )
+    package_source_group.add_argument(
+        "--use-file",
+        action="store_true",
+        help=f"Use the hardcoded package list from {DELETION_LIST_PATH.name}."
+    )
+
     parser.add_argument(
         "--new-parent-ref",
         "-npf",
@@ -42,7 +51,7 @@ def parse_args():
         type=str,
         required=True,
         choices=["ingest", "digami", "digarch"],
-        help="The parentref of the new folder. Options: 'ingest', 'digami', 'digarch'"
+        help="The parentref of the current folder. Options: 'ingest', 'digami', 'digarch'"
     )
     return parser.parse_args()
 
@@ -132,7 +141,7 @@ def set_new_parent_ref(accesstoken: str, pkg_uuid: str, new_parent_uuid: str) ->
     }
 
     try:
-        response = requests.put(move_url, headers=headers, data=new_parent_uuid)
+        response = requests.put(move_url, headers=headers, data=new_parent_uuid.strip())
 
         if response.status_code == 202:
             return True
@@ -167,7 +176,13 @@ def main():
     deletion_exists = set()
 
     # set -> list conversion to avoid miscounts in summary (gets rid of duplicates)
-    pkg_set = set(args.pkg_title if args.pkg_title else DELETION_LIST)
+    if args.use_file:
+        logging.info(f"Using package list from file: {DELETION_LIST_PATH.name}")
+        pkg_set = set(DELETION_LIST)
+    else:
+        logging.info("Using package list provided from the command line.")
+        pkg_set = set(args.pkg_title)
+
     pkg_list = list(pkg_set)
     
     i = 0

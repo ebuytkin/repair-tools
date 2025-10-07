@@ -68,7 +68,6 @@ def parse_args():
         "--source",
         "-s",
         type=extant_dir,
-        required=True,
         help="""Complete path to HD directories to be searched for.""",
         )
     parser.add_argument(
@@ -111,6 +110,12 @@ def parse_args():
         '-si',
         action="store_true",
         help="Flag to use cached source index",
+        )
+    parser.add_argument(
+        "--checklist",
+        "-cl",
+        action="store_true",
+        help="Flag to check packages against deletion checklist only",
         )
     # parser.add_argument(
     #     "--logpath",
@@ -180,6 +185,7 @@ def find_index(target_dir: Path,logger, cache_path: Path = CACHE_PATH) -> dict:
         return index
     
 def find_source_index(source_dir: Path, logger, cache_path: Path = SOURCE_CACHE_PATH) -> dict:
+    cache_path = Path(str(SOURCE_CACHE_PATH).replace("_reingest", f"_{source_dir.name}_reingest"))
     if cache_path.exists():
         logger.info(f"Loading source index from {cache_path}")
         with open(cache_path, "r") as f:
@@ -257,7 +263,7 @@ def parse_structural_object_uuid(res: requests.Response) -> list:
 
     return uuid_ls
     
-############# COPY FUNCTIONS
+############# COPY/MOVE FUNCTIONS
 
 def copy_single_pkg(missing_dirs, source_index: dict, copy_dir: Path, logger: logging.Logger,): # change missing_dirs to dir_name for threading
     c_copy_count = 0
@@ -309,7 +315,7 @@ def move_single_pkg(move_dirs, source_index: dict, ingest_dir: Path, logger: log
             if any(x in source_path.name for x in ("Audio", "Film", "Video")):
                 dest_path = Path(ingest_dir / source_path.parent.name / dir_name)
             else:
-                dest_path = Path(ingest_dir / source_path.name / dir_name)
+                dest_path = Path(ingest_dir / dir_name)
             dest_path.mkdir(parents=True, exist_ok=True)
             rsync_cmd = [
                 "rsync",
@@ -320,8 +326,9 @@ def move_single_pkg(move_dirs, source_index: dict, ingest_dir: Path, logger: log
             ]
             logger.info(f"Moving {source_path} to {dest_path}")
             try:
-                subprocess.run(rsync_cmd, check=True, text=True)
-                shutil.rmtree(source_path)
+                # subprocess.run(rsync_cmd, check=True, text=True)
+                # shutil.rmtree(source_path)
+                shutil.move(str(source_path), str(dest_path))
                 m_move_count += 1
             except subprocess.CalledProcessError as e:
                 logger.error(f"Error moving {dir_name}: {e.stderr}")
@@ -352,26 +359,36 @@ def main():
     args = parse_args()
     SLEEP_DURATION = 2
 
-    #args logpath to be introduced when pushed to NYPL github, static var for local use (EB)
-    # log_path = Path(args.logpath)
-    print("Step 1: set up logging") # DEBUG PRINT
     log_path = Path("/Users/emileebuytkins/Documents/Buytkins_Programming/compare_volumes_logs_index")
     log_path.mkdir(parents=True, exist_ok=True)
     
     logger, list_logger = setup_logging(log_file=Path(log_path / f"compare_mounted_volumes_{datetime.datetime.now().strftime('%Y%m%d')}.log"))
     
-    print("Step 2: establishing vars and source index") # DEBUG PRINT
-    source_dir = Path(args.source) # /Volumes/{HD}/
-    target_index = {}
+    source_dirs = []
+    source_index = {}
 
-    if args.srcindex:
-        source_index = find_source_index(source_dir, logger)
+    if args.checklist:
+        logger.info(f"Reading package names from file: {DELETION_LIST_PATH}")
+        if not DELETION_LIST_PATH.exists():
+            logger.error(f"Deletion list file not found at: {DELETION_LIST_PATH}")
+            raise SystemExit("Exiting: File not found.")
+        source_dirs = [line.strip() for line in DELETION_LIST_PATH.read_text().splitlines() if line.strip()]
+        logger.info(f"Found {len(source_dirs)} package names to check from the list.")
+    elif args.source:
+        logger.info(f"Scanning source directory: {args.source}")
+        source_dir = Path(args.source)
+        if args.srcindex:
+            source_index = find_source_index(source_dir, logger)
+        else:
+            logger.info("Creating temp source index...")
+            source_index = {dir.name: dir for dir in source_dir.rglob("*") if dir.is_dir() and len(dir.name) == 6 and dir.name.isdigit()}
+            logger.info(f"Source index created with {len(source_index)} entries.")
+        source_dirs = list(source_index.keys())
     else:
-        logger.info("Creating source index...")
-        source_index = {dir.name: dir for dir in source_dir.rglob("*") if dir.is_dir() and len(dir.name) == 6 and dir.name.isdigit()}
-        logger.info(f"Source index created with {len(source_index)} entries.")
-
-    print("Step 3: setting up target index if not prsvcheck") # DEBUG PRINT
+        logger.error("You must provide a --source directory or use the --check-list flag.")
+        raise SystemExit("Exiting: No source specified.")
+    
+    target_index = {}
     if not args.prsvcheck:
         if args.target:
             target_dir = Path(args.target)
@@ -382,28 +399,22 @@ def main():
 
     copy_dir = Path(args.copydir) if args.copydir else None
     move_dir = Path(args.movedir) if args.movedir else None
-    print("Step 4: getting access token") # DEBUG PRINT
+
     accesstoken = prsvapi.get_token(args.credentials)
 
     if "test" in args.credentials:
         digarch_uuid = "c0b9b47a-5552-4277-874e-092b3cc53af6"
-       # ami_uuid = 
     else:
         digarch_uuid = "e80315bc-42f5-44da-807f-446f78621c08"
         ami_uuid = "183a74b5-7247-4fb2-8184-959366bc0cbc"
 
-    print("Step 5: getting source dirs") # DEBUG PRINT
-    source_dirs = list(source_index.keys())
-    logger.info(f"Source dirs: {source_dirs}")
-
+    logger.info(f"Checking {len(source_dirs)} packages against Preservica...")
 
     missing_dirs = []
     index_uuids = []
     prsv_uuids = []
 
-    print("Step 6: checking preservica") # DEBUG PRINT
     for dir in source_dirs:
-        logging.info(f"{dir} started") # debug for SSL error/checking retry logic
         try:
             if dir.startswith("M"):
                 res = get_packages_uuids(accesstoken, dir, digarch_uuid)
@@ -419,7 +430,6 @@ def main():
                 res = get_amipackages_uuids(accesstoken, dir, ami_uuid)
             find_prsv_pkg = parse_structural_object_uuid(res)
 
-        # print(find_prsv_pkg)
         if find_prsv_pkg == []: 
             if dir not in target_index:
                 missing_dirs.append(dir)
@@ -431,88 +441,60 @@ def main():
             logger.info(f"{dir} found in Preservica.\n")
             prsv_uuids.append(dir)
 
-    print({l for l in prsv_uuids})
-
     print(" --- COMPARE SUMMARY --- ")
-    logger.info(f"\nTotal source dirs: {len(source_dirs)}\nFound in Preservica: {len(prsv_uuids)}\nFound in target: {len(index_uuids)}\nMissing: {len(missing_dirs)}\n")
+    logger.info(f"\nTotal packages checked: {len(source_dirs)}\nFound in Preservica: {len(prsv_uuids)}\nFound in target: {len(index_uuids)}\nMissing: {len(missing_dirs)}\n")
 
-    deletion_list = [line for line in DELETION_LIST_PATH.read_text().splitlines() if line.strip()]
-
-    logger.info(F"Updating {(DELETION_LIST_PATH).name} ...")
+    current_deletion_list = [line for line in DELETION_LIST_PATH.read_text().splitlines() if line.strip()]
+    updated_list = [pkg for pkg in current_deletion_list if pkg not in prsv_uuids]
+    final_list = sorted(list(set(updated_list + missing_dirs)))
+    
+    logger.info(f"Updating {DELETION_LIST_PATH.name}...")
+    logger.info(f"Removed {len(current_deletion_list) - len(updated_list)} already ingested packages from the list.")
+    logger.info(f"Adding {len(final_list) - len(updated_list)} new missing packages to the list.")
 
     with open(DELETION_LIST_PATH, "w") as f:
-        for pkg in deletion_list:
-            if pkg not in prsv_uuids:
-                f.write(f"{pkg}\n")
-
-    logger.info("Missing:")
-    with open(DELETION_LIST_PATH, "a") as f:
+        for pkg in final_list:
+            f.write(f"{pkg}\n")
+            
+    logger.info("\n Missing Packages:")
+    if args.checklist:
+        for name in final_list:
+            list_logger.info(name)
+    else:
         for name in missing_dirs:
             list_logger.info(name)
-            f.write(f"{name}\n")
 
-    for item in prsv_uuids:
-        print("\n\nINGESTED:")
-        print(item)
+    if not args.checklist:
+        failed_items = {}
+        skipped_items = {}
+        successful_copies = 0
+        successful_moves = 0
 
-
-################################################### copy / move functions
-    failed_items = {}
-    skipped_items = {}
-    successful_copies = 0
-    successful_moves = 0
-
-    if args.copydir:
-        # copy_missing_pkg(missing_dirs, source_dir, copy_dir)
-        print(f"Copying {len(missing_dirs)} packages.")
-        # copy_single_pkg(missing_dirs, source_dir, copy_dir, logger)
-
-        with ThreadPoolExecutor(max_workers=NUM_THREADS) as executor:
-            futures = {
-                executor.submit(copy_single_pkg, [dir_name], source_index, copy_dir, logger): 
-                dir_name for dir_name in sorted(missing_dirs)
-            }
-
-            for future in as_completed(futures):
-                dir_name = futures[future]
-                try:
-                    copy_count, failed_dict = future.result()
-                    successful_copies += copy_count
-                    failed_items.update(failed_dict)
-                except Exception as e:
-                    logger.error(f"Error during copying {dir_name}: {e}")
-
-        logger.info(f"{successful_copies} packages copied successfully.\n{len(failed_items)} packages failed to copy.\n {failed_items if failed_items else ''}")
-    # moves packages found in Preservica to designated dir, eg. 10_ingested_to_preservica
-    # print(f"DEBUG: prsv_uuids: {len(prsv_uuids)}\n{prsv_uuids}")
-    if args.movedir:
-        print(f"Moving {len(prsv_uuids)} packages.")
-        move_dir = Path(args.movedir) # /lpa/10_ingested_to_preservica/ or qumulo equivalent? or /lpa/0_waiting/reingest
-        # the next 2 lines are interchangable depening on use case - default is to whichever group of pkgs is smaller
-        # if args.mvingested:
-        if len(prsv_uuids) < len(missing_dirs):
+        if args.copydir:
+            print(f"Copying {len(missing_dirs)} packages.")
             with ThreadPoolExecutor(max_workers=NUM_THREADS) as executor:
                 futures = {
-                    executor.submit(move_single_pkg, [dir_name], source_index, move_dir, logger): 
-                    dir_name for dir_name in sorted(prsv_uuids)
-                }
-
-                for future in as_completed(futures):
-                    dir_name = futures[future]
-                    try:
-                        move_count, failed_dict, skip_dict = future.result()
-                        successful_moves += move_count
-                        failed_items.update(failed_dict)
-                        skipped_items.update(skip_dict)
-                    except Exception as e:
-                        logger.error(f"Error during copying {dir_name}: {e}")
-        else:
-            with ThreadPoolExecutor(max_workers=NUM_THREADS) as executor:
-                futures = {
-                    executor.submit(move_single_pkg, [dir_name], source_index, move_dir, logger): 
+                    executor.submit(copy_single_pkg, [dir_name], source_index, copy_dir, logger): 
                     dir_name for dir_name in sorted(missing_dirs)
                 }
-
+                for future in sorted(as_completed(futures)):
+                    dir_name = futures[future]
+                    try:
+                        copy_count, failed_dict = future.result()
+                        successful_copies += copy_count
+                        failed_items.update(failed_dict)
+                    except Exception as e:
+                        logger.error(f"Error during copying {dir_name}: {e}")
+            logger.info(f"{successful_copies} packages copied successfully.\n{len(failed_items)} packages failed to copy.\n {failed_items if failed_items else ''}")
+        
+        if args.movedir:
+            move_list = prsv_uuids if args.mvingested else missing_dirs
+            print(f"Moving {len(move_list)} packages.")
+            with ThreadPoolExecutor(max_workers=NUM_THREADS) as executor:
+                futures = {
+                    executor.submit(move_single_pkg, [dir_name], source_index, move_dir, logger): 
+                    dir_name for dir_name in sorted(move_list)
+                }
                 for future in as_completed(futures):
                     dir_name = futures[future]
                     try:
@@ -521,10 +503,13 @@ def main():
                         failed_items.update(failed_dict)
                         skipped_items.update(skip_dict)
                     except Exception as e:
-                        logger.error(f"Error during copying {dir_name}: {e}")
+                        logger.error(f"Error during moving {dir_name}: {e}")
 
-    print(" --- COPY / MOVE SUMMARY --- ")
-    print(f"Copied: {successful_copies}, Moved: {successful_moves}, Failed: {len(failed_items)}, Skipped: {len(skipped_items)}")
+        if args.copydir or args.movedir:
+            print(" --- COPY / MOVE SUMMARY --- ")
+            print(f"Copied: {successful_copies}, Moved: {successful_moves}, Failed: {len(failed_items)}, Skipped: {len(skipped_items)}")
+    elif args.copydir or args.movedir:
+        logger.warning("Copy and Move operations are ignored when using the --check-list flag.")
 
 if __name__ == "__main__":
     main()
