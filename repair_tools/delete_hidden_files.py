@@ -58,8 +58,9 @@ def get_hidden_files(directory: Path):
 
 
 def main():
-    # args = parse_args()
-    directory = Path("/Volumes/lpasync/prsv_prod_ingest/has_hidden_files")
+    args = parse_args()
+    # directory = Path("/Volumes/lpasync/prsv_prod_ingest/has_hidden_files")
+    directory = Path(args.directory)
 
     get_hidden_files(directory)
 
