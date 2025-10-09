@@ -29,7 +29,7 @@ def parse_args():
     # Create a mutually exclusive group for the package source
     package_source_group = parser.add_mutually_exclusive_group(required=True)
     package_source_group.add_argument(
-        "--pkg_title",
+        "--pkgtitle",
         "-p",
         nargs='+',
         help="One or more titles of packages to find and move, separated by a space."
@@ -181,7 +181,7 @@ def main():
         pkg_set = set(DELETION_LIST)
     else:
         logging.info("Using package list provided from the command line.")
-        pkg_set = set(args.pkg_title)
+        pkg_set = set(args.pkgtitle)
 
     pkg_list = list(pkg_set)
     

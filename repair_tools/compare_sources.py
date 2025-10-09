@@ -44,7 +44,7 @@ def setup_logging(log_file: Path):
 
 CACHE_PATH = Path("/Users/emileebuytkins/Documents/Buytkins_Programming/compare_volumes_logs_index/target_index.json")
 SOURCE_CACHE_PATH = Path("/Users/emileebuytkins/Documents/Buytkins_Programming/index_files/source_index_reingest.json")
-DELETION_LIST_PATH = Path("/Users/emileebuytkins/Documents/Buytkins_Programming/complete_reingest_history.txt")
+DELETION_LIST_PATH = Path("/Users/emileebuytkins/Documents/Buytkins_Programming/complete_reingest.txt")
 
 NUM_THREADS = (os.cpu_count() - 2) if (os.cpu_count() - 2) > 0 else 1
 
@@ -326,9 +326,9 @@ def move_single_pkg(move_dirs, source_index: dict, ingest_dir: Path, logger: log
             ]
             logger.info(f"Moving {source_path} to {dest_path}")
             try:
-                # subprocess.run(rsync_cmd, check=True, text=True)
-                # shutil.rmtree(source_path)
-                shutil.move(str(source_path), str(dest_path))
+                subprocess.run(rsync_cmd, check=True, text=True)
+                shutil.rmtree(source_path)
+                # shutil.move(str(source_path), str(dest_path))
                 m_move_count += 1
             except subprocess.CalledProcessError as e:
                 logger.error(f"Error moving {dir_name}: {e.stderr}")
