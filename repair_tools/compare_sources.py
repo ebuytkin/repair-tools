@@ -117,6 +117,12 @@ def parse_args():
         action="store_true",
         help="Flag to check packages against deletion checklist only",
         )
+    parser.add_argument(
+        "--rsync",
+        "-rs",
+        action="store_true",
+        help="Flag to run rsync copy/move commands instead of shutil",
+        )
     # parser.add_argument(
     #     "--logpath",
     #     "-lp",
@@ -299,7 +305,7 @@ def copy_single_pkg(missing_dirs, source_index: dict, copy_dir: Path, logger: lo
 
 
 
-def move_single_pkg(move_dirs, source_index: dict, ingest_dir: Path, logger: logging.Logger): # change missing_dirs to dir_name for threading
+def move_single_pkg(move_dirs, source_index: dict, ingest_dir: Path, logger: logging.Logger, rsync_mode): # change missing_dirs to dir_name for threading
     """Moves directories found in Preservica from source to target directory using rsync."""
     m_move_count = 0
     m_failed_dict = {}
@@ -326,9 +332,11 @@ def move_single_pkg(move_dirs, source_index: dict, ingest_dir: Path, logger: log
             ]
             logger.info(f"Moving {source_path} to {dest_path}")
             try:
-                subprocess.run(rsync_cmd, check=True, text=True)
-                shutil.rmtree(source_path)
-                # shutil.move(str(source_path), str(dest_path))
+                if rsync_mode == True:
+                    subprocess.run(rsync_cmd, check=True, text=True)
+                    shutil.rmtree(source_path)
+                else:
+                    shutil.move(str(source_path), str(dest_path))
                 m_move_count += 1
             except subprocess.CalledProcessError as e:
                 logger.error(f"Error moving {dir_name}: {e.stderr}")
@@ -414,7 +422,7 @@ def main():
     index_uuids = []
     prsv_uuids = []
 
-    for dir in source_dirs:
+    for dir in sorted(source_dirs):
         try:
             if dir.startswith("M"):
                 res = get_packages_uuids(accesstoken, dir, digarch_uuid)
@@ -488,11 +496,13 @@ def main():
             logger.info(f"{successful_copies} packages copied successfully.\n{len(failed_items)} packages failed to copy.\n {failed_items if failed_items else ''}")
         
         if args.movedir:
+            r_mode = True if args.rsync else False
+
             move_list = prsv_uuids if args.mvingested else missing_dirs
             print(f"Moving {len(move_list)} packages.")
             with ThreadPoolExecutor(max_workers=NUM_THREADS) as executor:
                 futures = {
-                    executor.submit(move_single_pkg, [dir_name], source_index, move_dir, logger): 
+                    executor.submit(move_single_pkg, [dir_name], source_index, move_dir, logger, r_mode): 
                     dir_name for dir_name in sorted(move_list)
                 }
                 for future in as_completed(futures):
