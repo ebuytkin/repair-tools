@@ -13,7 +13,7 @@ PARENT_HIERARCHY = "380c_d78-0a8a-4843-b472-2199ba7fad72" # INGEST folder
 
 PRESERVICA_API_URL = "https://nypl.preservica.com/api"
 
-DELETION_LIST_PATH = Path("/Users/emileebuytkins/Documents/Buytkins_Programming/complete_reingest_history.txt")
+DELETION_LIST_PATH = Path("/Users/emileebuytkins/Documents/Buytkins_Programming/complete_reingest.txt")
 DELETION_LIST = [line for line in DELETION_LIST_PATH.read_text().splitlines() if line.strip()]
 
 def parse_args():
